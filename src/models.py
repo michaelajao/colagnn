@@ -60,7 +60,7 @@ class cola_gnn(nn.Module):
             raise LookupError (' only support LSTM, GRU and RNN')
 
         hidden_size = (int(args.bi) + 1) * self.n_hidden
-        self.out = nn.Linear(hidden_size + self.n_spatial, 1)  
+        self.out = nn.Linear(hidden_size + self.n_spatial, args.horizon)  # Output horizon steps
 
         self.residual_window = 0
         self.ratio = 1.0
@@ -119,14 +119,15 @@ class cola_gnn(nn.Module):
         out_spatial = F.relu(self.conv2(x, adj))
         out = torch.cat((out_spatial, out_temporal),dim=-1)
         out = self.out(out)
-        out = torch.squeeze(out)
+        out = out.transpose(1, 2)  # [batch, horizon, nodes]
 
         if (self.residual_window > 0):
             z = orig_x[:, -self.residual_window:, :]; #Step backward # [batch, res_window, m]
             z = z.permute(0,2,1).contiguous().view(-1, self.residual_window); #[batch*m, res_window]
             z = self.residual(z); #[batch*m, 1]
             z = z.view(-1,self.m); #[batch, m]
-            out = out * self.ratio + z; #[batch, m]
+            z = z.unsqueeze(1).expand(-1, self.h, -1)  # [batch, horizon, m]
+            out = out * self.ratio + z; #[batch, horizon, m]
 
         return out, None
 
@@ -622,4 +623,3 @@ class gcn(nn.Module):
         h = self.mlp(h)
         h = F.dropout(h, self.dropout, training=self.training)
         return h
-

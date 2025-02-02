@@ -10,7 +10,7 @@ class DataBasicLoader(object):
         self.h = args.horizon # 1
         self.d = 0
         self.add_his_day = False
-        self.rawdat = np.loadtxt(open("../data/{}.txt".format(args.dataset)), delimiter=',')
+        self.rawdat = np.loadtxt(open("data/{}.txt".format(args.dataset)), delimiter=',')
         print('data shape', self.rawdat.shape)
         if args.sim_mat:
             self.load_sim_mat(args)
@@ -29,7 +29,7 @@ class DataBasicLoader(object):
         print('size of train/val/test sets',len(self.train[0]),len(self.val[0]),len(self.test[0]))
     
     def load_sim_mat(self, args):
-        self.adj = torch.Tensor(np.loadtxt(open("../data/{}.txt".format(args.sim_mat)), delimiter=','))
+        self.adj = torch.Tensor(np.loadtxt(open("data/{}.txt".format(args.sim_mat)), delimiter=','))
         self.orig_adj = self.adj
         rowsum = 1. / torch.sqrt(self.adj.sum(dim=0))
         self.adj = rowsum[:, np.newaxis] * self.adj * rowsum[np.newaxis, :]
@@ -39,11 +39,13 @@ class DataBasicLoader(object):
             self.orig_adj = self.orig_adj.cuda()
 
     def _pre_train(self, train, valid, test):
-        self.train_set = train_set = range(self.P+self.h-1, train)
-        self.valid_set = valid_set = range(train, valid)
-        self.test_set = test_set = range(valid, self.n)
+        # Adjust ranges to ensure we have enough future steps
+        self.train_set = train_set = range(self.P+self.h-1, train-self.h+1)
+        self.valid_set = valid_set = range(train, valid-self.h+1)
+        self.test_set = test_set = range(valid, self.n-self.h+1)
         self.tmp_train = self._batchify(train_set, self.h, useraw=True)
-        train_mx = torch.cat((self.tmp_train[0][0], self.tmp_train[1]), 0).numpy() #199, 47
+        # Handle multi-step targets by taking first step
+        train_mx = torch.cat((self.tmp_train[0][0], self.tmp_train[1][:,0,:]), 0).numpy() #199, 47
         self.max = np.max(train_mx, 0)
         self.min = np.min(train_mx, 0)
         self.peak_thold = np.mean(train_mx, 0)
@@ -60,7 +62,7 @@ class DataBasicLoader(object):
     def _batchify(self, idx_set, horizon, useraw=False): ###tonights work
 
         n = len(idx_set)
-        Y = torch.zeros((n, self.m))
+        Y = torch.zeros((n, self.h, self.m))  # [batch, horizon, nodes]
         if self.add_his_day and not useraw:
             X = torch.zeros((n, self.P+1, self.m))
         else:
@@ -72,7 +74,9 @@ class DataBasicLoader(object):
 
             if useraw: # for narmalization
                 X[i,:self.P,:] = torch.from_numpy(self.rawdat[start:end, :])
-                Y[i,:] = torch.from_numpy(self.rawdat[idx_set[i], :])
+                # Get multiple target steps
+                for j in range(self.h):
+                    Y[i,j,:] = torch.from_numpy(self.rawdat[idx_set[i]+j, :])
             else:
                 his_window = self.dat[start:end, :]
                 if self.add_his_day:
@@ -86,7 +90,9 @@ class DataBasicLoader(object):
                     X[i,:self.P+1,:] = torch.from_numpy(his_window) # size (window+1, m)
                 else:
                     X[i,:self.P,:] = torch.from_numpy(his_window) # size (window, m)
-                Y[i,:] = torch.from_numpy(self.dat[idx_set[i], :])
+                # Get multiple target steps
+                for j in range(self.h):
+                    Y[i,j,:] = torch.from_numpy(self.dat[idx_set[i]+j, :])
         return [X, Y]
 
     # original
@@ -103,7 +109,7 @@ class DataBasicLoader(object):
             end_idx = min(length, start_idx + batch_size)
             excerpt = index[start_idx:end_idx]
             X = inputs[excerpt,:]
-            Y = targets[excerpt,:]
+            Y = targets[excerpt,:,:]  # Include horizon dimension
             if (self.cuda):
                 X = X.cuda()
                 Y = Y.cuda()
@@ -112,5 +118,3 @@ class DataBasicLoader(object):
             data = [model_inputs, Variable(Y)]
             yield data
             start_idx += batch_size
-
-   

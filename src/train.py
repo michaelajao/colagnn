@@ -42,7 +42,7 @@ ap.add_argument('--shuffle', action='store_true', default=False, help="not used,
 ap.add_argument('--train', type=float, default=.6, help="Training ratio (0, 1)")
 ap.add_argument('--val', type=float, default=.2, help="Validation ratio (0, 1)")
 ap.add_argument('--test', type=float, default=.2, help="Testing ratio (0, 1)")
-ap.add_argument('--model', default='cola_gnn', choices=['cola_gnn','CNNRNN_Res','RNN','AR','ARMA','VAR','GAR','SelfAttnRNN','lstnet','stgcn','dcrnn'], help='')
+ap.add_argument('--model', default='cola_gnn', choices=['cola_gnn','CNNRNN_Res','RNN','AR','ARMA','VAR','GAR','SelfAttnRNN','lstnet','stgcn','dcrnn','st_gat'], help='')
 ap.add_argument('--rnn_model', default='RNN', choices=['LSTM','RNN','GRU'], help='')
 ap.add_argument('--mylog', action='store_false', default=True,  help='save tensorboad log')
 ap.add_argument('--cuda', action='store_true', default=False,  help='')
@@ -56,6 +56,18 @@ ap.add_argument('--patience', type=int, default=200, help='patience default 100'
 ap.add_argument('--k', type=int, default=10,  help='kernels')
 ap.add_argument('--hidsp', type=int, default=15,  help='spatial dim')
 
+# Additional arguments for SpatiotemporalTransformerGAT
+ap.add_argument('--d_model', type=int, default=32, help='transformer model dimension')
+ap.add_argument('--nhead', type=int, default=4, help='number of transformer attention heads')
+ap.add_argument('--num_transformer_layers', type=int, default=2, help='number of transformer layers')
+ap.add_argument('--dim_feedforward', type=int, default=128, help='transformer feedforward dimension')
+ap.add_argument('--hidden_dim_gnn', type=int, default=32, help='GNN hidden dimension')
+ap.add_argument('--num_gnn_layers', type=int, default=2, help='number of GNN layers')
+ap.add_argument('--gat_heads', type=int, default=1, help='number of GAT attention heads')
+ap.add_argument('--beta', type=float, default=0.3, help='weight for dynamic adjacency')
+ap.add_argument('--clamp_adj', action='store_true', default=True, help='clamp adjacency values to [0,1]')
+ap.add_argument('--threshold_adj', type=float, default=None, help='threshold for adjacency values')
+
 args = ap.parse_args() 
 print('--------Parameters--------')
 print(args)
@@ -68,6 +80,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dcrnn_model import *
+from spatiotemporal_transformer_gat import SpatiotemporalTransformerGAT
 
 
 random.seed(args.seed)
@@ -112,7 +125,9 @@ elif args.model == 'stgcn':
 elif args.model == 'dcrnn':
     model = DCRNNModel(args, data_loader)   
 elif args.model == 'cola_gnn':
-    model = cola_gnn(args, data_loader)        
+    model = cola_gnn(args, data_loader)
+elif args.model == 'st_gat':
+    model = SpatiotemporalTransformerGAT(args, data_loader)
 else: 
     raise LookupError('can not find the model')
  
@@ -135,17 +150,24 @@ def evaluate(data_loader, data, tag='val'):
     for inputs in data_loader.get_batches(data, batch_size, False):
         X, Y = inputs[0], inputs[1]
         output,_  = model(X)
-        loss_train = F.l1_loss(output, Y) # mse_loss
+        # Compute loss across all prediction steps
+        loss_train = F.l1_loss(output, Y) # Both are [batch, horizon, nodes]
         total_loss += loss_train.item()
         n_samples += (output.size(0) * data_loader.m);
 
         y_true_mx.append(Y.data.cpu())
         y_pred_mx.append(output.data.cpu())
 
-    y_pred_mx = torch.cat(y_pred_mx)
-    y_true_mx = torch.cat(y_true_mx) # [n_samples, 47] 
-    y_true_states = y_true_mx.numpy() * (data_loader.max - data_loader.min ) * 1.0 + data_loader.min  
-    y_pred_states = y_pred_mx.numpy() * (data_loader.max - data_loader.min ) * 1.0 + data_loader.min  #(#n_samples, 47)
+    y_pred_mx = torch.cat(y_pred_mx)  # [n_samples, horizon, nodes]
+    y_true_mx = torch.cat(y_true_mx)  # [n_samples, horizon, nodes]
+    
+    # Reshape predictions to match targets
+    y_pred_mx = y_pred_mx.reshape(-1, data_loader.m)  # [n_samples*horizon, nodes]
+    y_true_mx = y_true_mx.reshape(-1, data_loader.m)  # [n_samples*horizon, nodes]
+    
+    # Convert to real values
+    y_true_states = y_true_mx.numpy() * (data_loader.max - data_loader.min) * 1.0 + data_loader.min
+    y_pred_states = y_pred_mx.numpy() * (data_loader.max - data_loader.min) * 1.0 + data_loader.min
     rmse_states = np.mean(np.sqrt(mean_squared_error(y_true_states, y_pred_states, multioutput='raw_values'))) # mean of 47
     raw_mae = mean_absolute_error(y_true_states, y_pred_states, multioutput='raw_values')
     std_mae = np.std(raw_mae) # Standard deviation of MAEs for all states/places 
@@ -181,11 +203,11 @@ def train(data_loader, data):
         X, Y = inputs[0], inputs[1]
         optimizer.zero_grad()
         output,_  = model(X) 
-        if Y.size(0) == 1:
-            Y = Y.view(-1)
-        loss_train = F.l1_loss(output, Y) # mse_loss
+        # Compute loss across all prediction steps
+        loss_train = F.l1_loss(output, Y) # Both are [batch, horizon, nodes]
         total_loss += loss_train.item()
         loss_train.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         n_samples += (output.size(0) * data_loader.m)
     return float(total_loss / n_samples)
@@ -246,4 +268,3 @@ with open(model_path, 'rb') as f:
 test_loss, mae,std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae  = evaluate(data_loader, data_loader.test,tag='test')
 print('Final evaluation')
 print('TEST MAE {:5.4f} std {:5.4f} RMSE {:5.4f} RMSEs {:5.4f} PCC {:5.4f} PCCs {:5.4f} R2 {:5.4f} R2s {:5.4f} Var {:5.4f} Vars {:5.4f} Peak {:5.4f}'.format( mae, std_mae, rmse, rmse_states, pcc, pcc_states,r2, r2_states, var, var_states, peak_mae))
-           
