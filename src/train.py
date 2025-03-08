@@ -134,6 +134,11 @@ else:
 logger.info('model %s', model)
 if args.cuda:
     model.cuda()
+    # Add CUDA verification code
+    print(f"Current device: {torch.cuda.current_device()}")
+    print(f"Device name: {torch.cuda.get_device_name()}")
+    print(f"Device count: {torch.cuda.device_count()}")
+
 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay)
 pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print('#params:',pytorch_total_params)

@@ -52,13 +52,13 @@ Example commands for training various models:
 
 ```bash
 # Train ColaGNN model on Japan dataset
-python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model cola_gnn --patience 100 --gpu 0
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model cola_gnn --patience 100 --gpu 0 --mylog
 
 # Train SelfAttnRNN model on Japan dataset
-python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model SelfAttnRNN --patience 100 --gpu 0
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model SelfAttnRNN --patience 100 --gpu 0 --mylog
 
 # Train ST-GAT model on Japan dataset
-python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model st_gat --patience 100 --gpu 0
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model st_gat --patience 100 --gpu 0 --mylog
 ```
 
 ### Key Parameters
