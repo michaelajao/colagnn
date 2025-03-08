@@ -270,14 +270,19 @@ class SelfAttnRNN(nn.Module):
         self.n_input = 1
         self.m = data.m
         self.w = args.window
-        self.hid = args.n_hidden 
-        self.rnn_cell =  nn.RNNCell(input_size=self.n_input, hidden_size=self.hid)
+        self.hid = args.n_hidden
+        self.horizon = args.horizon
+        self.rnn_cell = nn.RNNCell(input_size=self.n_input, hidden_size=self.hid)
         self.V = Parameter(torch.Tensor(self.hid, 1))
         self.Wx = Parameter(torch.Tensor(self.hid, self.n_input))
         self.Wtlt = Parameter(torch.Tensor(self.hid, self.hid))
         self.Wh = Parameter(torch.Tensor(self.hid, self.hid))
         self.init_weights()
-        self.out = nn.Linear(self.hid, 1)
+        self.out = nn.Linear(self.hid, self.horizon)  # Output horizon steps directly
+        self.use_cuda = args.cuda
+        self.device = torch.device("cuda:{}".format(args.gpu)) if args.cuda else torch.device("cpu")
+        # Move all parameters to the correct device
+        self.to(self.device)
     
     def init_weights(self):
         for p in self.parameters():
@@ -291,19 +296,22 @@ class SelfAttnRNN(nn.Module):
     def forward(self, x):
         '''
         Args: x: (batch, time_step, m)  
-        Returns: (batch, m)
+        Returns: (batch, horizon, m)
         '''
+        # Ensure input is on the right device
+        x = x.to(self.device)
+        
         b, w, m = x.size()
         x = x.permute(0, 2, 1).contiguous().view(x.size(0)*x.size(2), x.size(1), self.n_input) # x, 20, 1
         Htlt = []
         H = []
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        
         for step in range(self.w): # forloop each history step
             x_tp1 = x[:,step,:] # [x, 1]
             if step == 0:
-                hx = torch.zeros(b*m, self.hid).to(device)
+                hx = torch.zeros(b*m, self.hid, device=self.device)
                 H.append(hx)
-                h_tlt = torch.zeros(b*m, self.hid).to(device)
+                h_tlt = torch.zeros(b*m, self.hid, device=self.device)
             else:
                 h_tlt = Htlt[-1]
             h_his = torch.stack(H,dim=1)
@@ -324,9 +332,10 @@ class SelfAttnRNN(nn.Module):
             hx = self.rnn_cell(x_tp1, h_tlt_t) # [x, 20]
             H.append(hx)
         h = H[-1]
-        out = self.out(h)
-        out = out.view(b,m)
-        return out,None
+        out = self.out(h)  # [b*m, horizon]
+        out = out.view(b, m, self.horizon)  # [b, m, horizon]
+        out = out.permute(0, 2, 1)  # [b, horizon, m]
+        return out, None
 
 class CNNRNN_Res(nn.Module):
     def __init__(self, args, data): 

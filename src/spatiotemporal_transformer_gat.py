@@ -229,4 +229,7 @@ class SpatiotemporalTransformerGAT(nn.Module):
         # Stack predictions and match target shape [batch, nodes, horizon]
         x = torch.stack(predictions, dim=-1)  # [batch, nodes, horizon]
         
+        # Transpose to match the expected shape [batch, horizon, nodes] for train.py
+        x = x.permute(0, 2, 1)  # [batch, horizon, nodes]
+        
         return x, None
