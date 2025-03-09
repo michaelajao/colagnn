@@ -54,11 +54,20 @@ Example commands for training various models:
 # Train ColaGNN model on Japan dataset
 python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model cola_gnn --patience 100 --gpu 0 --mylog
 
-# Train SelfAttnRNN model on Japan dataset
+# Train SelfAttnRNN model on Japan dataset this takes longer to run
 python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model SelfAttnRNN --patience 100 --gpu 0 --mylog
 
 # Train ST-GAT model on Japan dataset
 python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model st_gat --patience 100 --gpu 0 --mylog
+
+# Train CNNRNN_Res model on Japan dataset
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model cnnrnn_res --patience 100 --gpu 0 --mylog
+
+# Train LSTNet model on Japan dataset
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model lstnet --patience 100 --gpu 0 --mylog
+
+# Train STGCN model on Japan dataset
+python src/train.py --dataset japan --sim_mat japan-adj --epoch 1500 --train 0.5 --val 0.2 --test 0.3 --batch 128 --horizon 5 --model stgcn --patience 100 --gpu 0 --mylog
 ```
 
 ### Key Parameters
