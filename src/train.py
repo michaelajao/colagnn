@@ -12,7 +12,9 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error,r2_score,exp
 from math import sqrt
 
 import scipy.sparse as sp
-from scipy.stats.stats import pearsonr
+
+from scipy.stats import pearsonr
+
 from models import *
 from data import *
 
@@ -149,11 +151,16 @@ def evaluate(data_loader, data, tag='val'):
     y_true_mx = []
     for inputs in data_loader.get_batches(data, batch_size, False):
         X, Y = inputs[0], inputs[1]
-        output,_  = model(X)
+        output, _ = model(X)
+        
+        # Ensure output has proper shape [batch, horizon, nodes]
+        if output.dim() == 2:  # If output is [batch, nodes]
+            output = output.unsqueeze(1).expand(-1, Y.size(1), -1)
+            
         # Compute loss across all prediction steps
-        loss_train = F.l1_loss(output, Y) # Both are [batch, horizon, nodes]
+        loss_train = F.l1_loss(output, Y)  # Both are [batch, horizon, nodes]
         total_loss += loss_train.item()
-        n_samples += (output.size(0) * data_loader.m);
+        n_samples += (output.size(0) * data_loader.m)
 
         y_true_mx.append(Y.data.cpu())
         y_pred_mx.append(output.data.cpu())
@@ -202,7 +209,8 @@ def train(data_loader, data):
     for inputs in data_loader.get_batches(data, batch_size, True):
         X, Y = inputs[0], inputs[1]
         optimizer.zero_grad()
-        output,_  = model(X) 
+        output, _ = model(X) 
+        
         # Compute loss across all prediction steps
         loss_train = F.l1_loss(output, Y) # Both are [batch, horizon, nodes]
         total_loss += loss_train.item()
@@ -214,20 +222,20 @@ def train(data_loader, data):
  
 bad_counter = 0
 best_epoch = 0
-best_val = 1e+20;
+best_val = 1e+20
 try:
-    print('begin training');
+    print('begin training')
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
     
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
         train_loss = train(data_loader, data_loader.train)
-        val_loss, mae,std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae = evaluate(data_loader, data_loader.val)
+        val_loss, mae, std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae = evaluate(data_loader, data_loader.val)
         print('Epoch {:3d}|time:{:5.2f}s|train_loss {:5.8f}|val_loss {:5.8f}'.format(epoch, (time.time() - epoch_start_time), train_loss, val_loss))
 
         if args.mylog:
-            writer.add_scalars('data/loss', {'train': train_loss}, epoch )
+            writer.add_scalars('data/loss', {'train': train_loss}, epoch)
             writer.add_scalars('data/loss', {'val': val_loss}, epoch)
             writer.add_scalars('data/mae', {'val': mae}, epoch)
             writer.add_scalars('data/rmse', {'val': rmse_states}, epoch)
@@ -248,7 +256,7 @@ try:
             model_path = '%s/%s.pt' % (args.save_dir, log_token)
             with open(model_path, 'wb') as f:
                 torch.save(model.state_dict(), f)
-            print('Best validation epoch:',epoch, time.ctime());
+            print('Best validation epoch:',epoch, time.ctime())
             test_loss, mae,std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae  = evaluate(data_loader, data_loader.test,tag='test')
             print('TEST MAE {:5.4f} std {:5.4f} RMSE {:5.4f} RMSEs {:5.4f} PCC {:5.4f} PCCs {:5.4f} R2 {:5.4f} R2s {:5.4f} Var {:5.4f} Vars {:5.4f} Peak {:5.4f}'.format( mae, std_mae, rmse, rmse_states, pcc, pcc_states,r2, r2_states, var, var_states, peak_mae))
         else:
@@ -264,7 +272,7 @@ except KeyboardInterrupt:
 # Load the best saved model.
 model_path = '%s/%s.pt' % (args.save_dir, log_token)
 with open(model_path, 'rb') as f:
-    model.load_state_dict(torch.load(f));
+    model.load_state_dict(torch.load(f))
 test_loss, mae,std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae  = evaluate(data_loader, data_loader.test,tag='test')
 print('Final evaluation')
 print('TEST MAE {:5.4f} std {:5.4f} RMSE {:5.4f} RMSEs {:5.4f} PCC {:5.4f} PCCs {:5.4f} R2 {:5.4f} R2s {:5.4f} Var {:5.4f} Vars {:5.4f} Peak {:5.4f}'.format( mae, std_mae, rmse, rmse_states, pcc, pcc_states,r2, r2_states, var, var_states, peak_mae))

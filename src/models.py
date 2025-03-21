@@ -137,11 +137,13 @@ class ARMA(nn.Module):
         super(ARMA, self).__init__()
         self.m = data.m
         self.w = args.window
+        self.h = args.horizon  # Store horizon for reshaping output
         self.n = 2 # larger worse
         self.w = 2*self.w - self.n + 1 
         self.weight = Parameter(torch.Tensor(self.w, self.m)) # 20 * 49
         self.bias = Parameter(torch.zeros(self.m)) # 49
-        nn.init.xavier_normal(self.weight)
+        # Fix deprecated xavier_normal
+        nn.init.xavier_normal_(self.weight)
 
         args.output_fun = None;
         self.output = None
@@ -162,6 +164,8 @@ class ARMA(nn.Module):
         x = torch.sum(x * self.weight, dim=1) + self.bias
         if (self.output != None):
             x = self.output(x)
+        # Reshape to [batch, horizon, nodes]
+        x = x.unsqueeze(1).expand(-1, self.h, -1)
         return x, None
 
 class AR(nn.Module):
@@ -169,9 +173,11 @@ class AR(nn.Module):
         super(AR, self).__init__()
         self.m = data.m
         self.w = args.window
+        self.h = args.horizon  # Store horizon for reshaping output
         self.weight = Parameter(torch.Tensor(self.w, self.m)) # 20 * 49
         self.bias = Parameter(torch.zeros(self.m)) # 49
-        nn.init.xavier_normal(self.weight)
+        # Fix deprecated xavier_normal
+        nn.init.xavier_normal_(self.weight)
 
         args.output_fun = None;
         self.output = None
@@ -185,13 +191,16 @@ class AR(nn.Module):
         x = torch.sum(x * self.weight, dim=1) + self.bias
         if (self.output != None):
             x = self.output(x)
-        return x,None
+        # Reshape to [batch, horizon, nodes]
+        x = x.unsqueeze(1).expand(-1, self.h, -1)
+        return x, None
 
 class VAR(nn.Module):
     def __init__(self, args, data):
         super(VAR, self).__init__()
         self.m = data.m
         self.w = args.window
+        self.h = args.horizon  # Store horizon for reshaping output
         self.linear = nn.Linear(self.m * self.w, self.m);
         args.output_fun = None;
         self.output = None;
@@ -205,14 +214,16 @@ class VAR(nn.Module):
         x = self.linear(x);
         if (self.output != None):
             x = self.output(x);
-        return x,None
+        # Reshape to [batch, horizon, nodes]
+        x = x.unsqueeze(1).expand(-1, self.h, -1)
+        return x, None
 
 class GAR(nn.Module):
     def __init__(self, args, data):
         super(GAR, self).__init__()
         self.m = data.m
         self.w = args.window
-
+        self.h = args.horizon  # Store horizon for reshaping output
         self.linear = nn.Linear(self.w, 1);
         args.output_fun = None;
         self.output = None;
@@ -229,13 +240,16 @@ class GAR(nn.Module):
         x = x.view(batch_size, self.m);
         if (self.output != None):
             x = self.output(x);
-        return x,None
+        # Reshape to [batch, horizon, nodes]
+        x = x.unsqueeze(1).expand(-1, self.h, -1)
+        return x, None
 
 class RNN(nn.Module):
     def __init__(self, args, data):
         super(RNN, self).__init__()
         n_input = 1
         self.m = data.m
+        self.h = args.horizon  # Store horizon for reshaping output
         if args.rnn_model == 'LSTM':
             self.rnn = nn.LSTM( input_size=n_input, hidden_size=args.n_hidden, num_layers=args.n_layer, dropout=args.dropout,
                                 batch_first=True, bidirectional=args.bi)
@@ -256,13 +270,15 @@ class RNN(nn.Module):
         Args:
             x: (batch, time_step, m)  
         Returns:
-            (batch, m)
+            (batch, horizon, m)
         '''
         x = x.permute(0, 2, 1).contiguous().view(-1, x.size(1), 1)
         r_out, hc = self.rnn(x, None) # hidden state is the prediction TODO
         out = self.out(r_out[:,-1,:])
         out = out.view(-1, self.m)
-        return out,None
+        # Reshape to [batch, horizon, nodes]
+        out = out.unsqueeze(1).expand(-1, self.h, -1)
+        return out, None
 
 class SelfAttnRNN(nn.Module):
     def __init__(self, args, data):
@@ -341,7 +357,8 @@ class CNNRNN_Res(nn.Module):
     def __init__(self, args, data): 
         super(CNNRNN_Res, self).__init__()
         self.ratio = 1.0   
-        self.m = data.m  
+        self.m = data.m
+        self.h = args.horizon  # Store horizon for output shape
 
         if args.rnn_model == 'LSTM':
             self.rnn = nn.LSTM( input_size=self.m, hidden_size=args.n_hidden, num_layers=args.n_layer, dropout=args.dropout, batch_first=True)
@@ -355,7 +372,8 @@ class CNNRNN_Res(nn.Module):
         self.residual_window = 4
 
         self.mask_mat = Parameter(torch.Tensor(self.m, self.m))
-        nn.init.xavier_normal(self.mask_mat)  
+        # Fix deprecated xavier_normal
+        nn.init.xavier_normal_(self.mask_mat)
         self.adj = data.adj  
 
         self.dropout = nn.Dropout(p=args.dropout)
@@ -386,7 +404,10 @@ class CNNRNN_Res(nn.Module):
 
         if self.output is not None:
             res = self.output(res).float()
-        return res,None
+            
+        # Reshape to [batch, horizon, nodes]
+        res = res.unsqueeze(1).expand(-1, self.h, -1)
+        return res, None
 
 class LSTNet(nn.Module):
     def __init__(self, args, data):
@@ -394,6 +415,7 @@ class LSTNet(nn.Module):
         self.use_cuda = args.cuda
         self.P = args.window;
         self.m = data.m
+        self.h = args.horizon  # Store horizon for output shape
         self.hidR = args.n_hidden;
         self.hidC = args.n_hidden;
         self.hidS = 5;
@@ -453,7 +475,10 @@ class LSTNet(nn.Module):
             
         if (self.output):
             res = self.output(res);
-        return res,None
+            
+        # Reshape to [batch, horizon, nodes]
+        res = res.unsqueeze(1).expand(-1, self.h, -1)
+        return res, None
 
 
 
@@ -590,7 +615,13 @@ class STGCN(nn.Module):
         out3 = self.last_temporal(out2)
         out4 = self.fully(out3.reshape((out3.shape[0], out3.shape[1], -1)))
         # print(out4.shape)
-        return out4.squeeze(-1),None
+        
+        # Reshape to [batch, horizon, nodes] where horizon is assumed to be 1
+        # and expand it to match the target horizon
+        out = out4.squeeze(-1)  # [batch, nodes]
+        out = out.unsqueeze(1).expand(-1, self.h, -1)  # [batch, horizon, nodes]
+        
+        return out, None
 
 
 class nconv(nn.Module):

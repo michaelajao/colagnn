@@ -67,7 +67,7 @@ class DecoderModel(nn.Module, Seq2SeqAttrs):
         
         Seq2SeqAttrs.__init__(self, args, data)
         self.output_dim = 1
-        self.horizon = 1 #args.horizon  # for the decoder
+        self.horizon = args.horizon  # Update to use args.horizon for the decoder
         self.projection_layer = nn.Linear(self.rnn_units, self.output_dim)
         self.dcgru_layers = nn.ModuleList(
             [DCGRUCell(self.rnn_units, adj_mx, self.max_diffusion_step, self.num_nodes,
@@ -99,21 +99,15 @@ class DecoderModel(nn.Module, Seq2SeqAttrs):
 class DCRNNModel(nn.Module, Seq2SeqAttrs):
     def __init__(self, args, data):
         super().__init__()
-        # if args.cuda:
-        #     adj_mx = sparse_mx_to_torch_sparse_tensor(normalize_adj2(data.orig_adj.cpu().numpy())).to_dense().cuda()
-        # else:
-        #     adj_mx = sparse_mx_to_torch_sparse_tensor(normalize_adj2(data.orig_adj.cpu().numpy())).to_dense()
-        # if args.cuda:
-        #     adj_mx = sparse_mx_to_torch_sparse_tensor(data.orig_adj).to_dense().cuda()
-        # else:
-        #     adj_mx = sparse_mx_to_torch_sparse_tensor(data.orig_adj).to_dense()
         adj_mx = data.orig_adj.cpu().numpy()
-        # print(adj_mx)
         Seq2SeqAttrs.__init__(self, args, data)
         self.encoder_model = EncoderModel(args, data)
         self.decoder_model = DecoderModel(args, data)
         self.cl_decay_steps = 1000
         self.use_curriculum_learning = False
+        # Store the horizon for reshaping output
+        self.horizon = args.horizon
+        self.num_nodes = data.m
 
     def _compute_sampling_threshold(self, batches_seen):
         return self.cl_decay_steps / (
@@ -167,17 +161,13 @@ class DCRNNModel(nn.Module, Seq2SeqAttrs):
         :param batches_seen: batches seen till now
         :return: output: (self.horizon, batch_size, self.num_nodes * self.output_dim)
         """
-        #  [32, 20, 47]
-        # print(inputs.shape)
-        inputs = inputs.permute(1,0,2).contiguous()
+        inputs = inputs.permute(1, 0, 2).contiguous()
         encoder_hidden_state = self.encoder(inputs)
-        # self._logger.debug("Encoder complete, starting decoder")
         outputs = self.decoder(encoder_hidden_state, labels, batches_seen=batches_seen)
-        # self._logger.debug("Decoder complete")
-        # if batches_seen == 0:
-        #     self._logger.info(
-        #         "Total trainable parameters {}".format(count_parameters(self))
-        #     )
-        # print(outputs.shape,'====')
-        outputs = outputs.squeeze(0)
+        
+        # Reshape from [horizon, batch, nodes*out_dim] to [batch, horizon, nodes]
+        batch_size = outputs.size(1)
+        outputs = outputs.permute(1, 0, 2)  # [batch, horizon, nodes*out_dim]
+        outputs = outputs.view(batch_size, self.horizon, self.num_nodes)
+        
         return outputs, None
