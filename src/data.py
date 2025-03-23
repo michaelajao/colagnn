@@ -1,6 +1,7 @@
 import sys
 import torch
 import numpy as np
+import os
 from torch.autograd import Variable
 
 class DataBasicLoader(object):
@@ -10,10 +11,16 @@ class DataBasicLoader(object):
         self.h = args.horizon # 1
         self.d = 0
         self.add_his_day = False
-        self.rawdat = np.loadtxt(open("data/{}.txt".format(args.dataset)), delimiter=',')
+        
+        # Get the project root directory (parent of src directory)
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        data_path = os.path.join(project_root, "data", f"{args.dataset}.txt")
+        self.rawdat = np.loadtxt(open(data_path), delimiter=',')
+        print('data path:', data_path)
         print('data shape', self.rawdat.shape)
+        
         if args.sim_mat:
-            self.load_sim_mat(args)
+            self.load_sim_mat(args, project_root)
  
         if (len(self.rawdat.shape)==1):
             self.rawdat = self.rawdat.reshape((self.rawdat.shape[0], 1))
@@ -28,8 +35,9 @@ class DataBasicLoader(object):
         self._split(int(args.train * self.n), int((args.train + args.val) * self.n), self.n)
         print('size of train/val/test sets',len(self.train[0]),len(self.val[0]),len(self.test[0]))
     
-    def load_sim_mat(self, args):
-        self.adj = torch.Tensor(np.loadtxt(open("data/{}.txt".format(args.sim_mat)), delimiter=','))
+    def load_sim_mat(self, args, project_root):
+        sim_mat_path = os.path.join(project_root, "data", f"{args.sim_mat}.txt")
+        self.adj = torch.Tensor(np.loadtxt(open(sim_mat_path), delimiter=','))
         self.orig_adj = self.adj
         rowsum = 1. / torch.sqrt(self.adj.sum(dim=0))
         self.adj = rowsum[:, np.newaxis] * self.adj * rowsum[np.newaxis, :]

@@ -23,6 +23,7 @@ import logging
 import glob
 import time
 from tensorboardX import SummaryWriter
+import csv
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s') # include timestamp
@@ -88,8 +89,25 @@ from spatiotemporal_transformer_gat import SpatiotemporalTransformerGAT
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 args.cuda = args.cuda and torch.cuda.is_available() 
+args.cuda = args.gpu is not None and torch.cuda.is_available()
+
+# Create device object for consistent usage throughout the code
+if args.cuda:
+    try:
+        torch.cuda.set_device(args.gpu)
+        device = torch.device(f'cuda:{args.gpu}')
+    except (AttributeError, AssertionError):
+        device = torch.device(f'cuda:{args.gpu}')
+else:
+    device = torch.device('cpu')
+
+# args.cuda = args.cuda and torch.cuda.is_available() 
 logger.info('cuda %s', args.cuda)
 
 time_token = str(time.time()).split('.')[0] # tensorboard model
@@ -274,5 +292,28 @@ model_path = '%s/%s.pt' % (args.save_dir, log_token)
 with open(model_path, 'rb') as f:
     model.load_state_dict(torch.load(f))
 test_loss, mae,std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae  = evaluate(data_loader, data_loader.test,tag='test')
+
+# Save metrics to CSV
+metrics = [mae, std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae]
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+csv_filename = os.path.join(project_root, "result", "metrics.csv")
+header = ['dataset', 'horizon', 'model', 'mae', 'std_mae', 'rmse', 'rmse_states', 'pcc', 'pcc_states', 'r2', 'r2_states', 'var', 'var_states', 'peak_mae']
+
+# Create result directory if it doesn't exist
+os.makedirs(os.path.dirname(csv_filename), exist_ok=True)
+
+# Check if file exists or not to write header only once (optional)
+try:
+    with open(csv_filename, 'x', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(header)
+except FileExistsError:
+    pass
+
+# After evaluation, write a new row with the metrics and parameters
+with open(csv_filename, mode='a', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow([args.dataset, args.horizon, args.model, mae, std_mae, rmse, rmse_states, pcc, pcc_states, r2, r2_states, var, var_states, peak_mae])
+
 print('Final evaluation')
 print('TEST MAE {:5.4f} std {:5.4f} RMSE {:5.4f} RMSEs {:5.4f} PCC {:5.4f} PCCs {:5.4f} R2 {:5.4f} R2s {:5.4f} Var {:5.4f} Vars {:5.4f} Peak {:5.4f}'.format( mae, std_mae, rmse, rmse_states, pcc, pcc_states,r2, r2_states, var, var_states, peak_mae))
