@@ -2,3 +2,4 @@ src/tensorboard/*/*/*/*/*
 src/tensorboard/*
 
 save/*/*/*/*.pt
+
